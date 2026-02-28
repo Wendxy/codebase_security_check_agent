@@ -59,13 +59,13 @@ export OPENAI_API_KEY="sk-...your-key..."
 
 ## How to Run
 
-### 1) Full scan
+### 1. Full scan
 
 ```bash
 security-agent scan .
 ```
 
-### 2) Smaller and Faster scoped scan (recommended for first run)
+### 2. Smaller and Faster scoped scan (recommended for first run)
 
 ```bash
 security-agent scan . \
@@ -77,19 +77,19 @@ security-agent scan . \
   --exclude 'docs/**'
 ```
 
-### 3) View latest report
+### 3. View latest report
 
 ```bash
 security-agent report show --run-id latest
 ```
 
-### 4) Deep dive on one finding
+### 4. Deep dive on one finding
 
 ```bash
 security-agent explain R-001 --run-id latest
 ```
 
-### 5) List previous runs
+### 5. List previous runs
 
 ```bash
 security-agent runs list
