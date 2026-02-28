@@ -14,7 +14,7 @@ except Exception:  # pragma: no cover - handled at runtime
 @dataclass(slots=True)
 class OpenAIConfig:
     model: str = "gpt-5"
-    temperature: float = 0.1
+    temperature: float = 1
 
 
 class OpenAIModelClient:

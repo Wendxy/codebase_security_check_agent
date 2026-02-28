@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Callable, Protocol
@@ -74,11 +75,25 @@ class PassOutput:
 def run_comprehension_pass(model: JsonModelClient, files: dict[str, str]) -> list[ComprehensionSummary]:
     chunks = chunk_files(files)
     by_file: dict[str, list[tuple[str, list[str]]]] = defaultdict(list)
+    started_at = time.perf_counter()
+    total_chunks = len(chunks)
+    print(f"[progress] comprehension pass: {total_chunks} chunk(s) queued", flush=True)
 
-    for chunk in chunks:
+    for index, chunk in enumerate(chunks, start=1):
+        chunk_started = time.perf_counter()
+        print(
+            f"[progress] comprehension {index}/{total_chunks}: "
+            f"{chunk.file} ({chunk.chunk_index}/{chunk.total_chunks}) request sent",
+            flush=True,
+        )
         payload = model.chat_json(
             COMPREHENSION_SYSTEM_PROMPT,
             _serialize_chunk(chunk),
+        )
+        chunk_elapsed = time.perf_counter() - chunk_started
+        print(
+            f"[progress] comprehension {index}/{total_chunks}: response in {chunk_elapsed:.1f}s",
+            flush=True,
         )
         summary = str(payload.get("summary", "")).strip()
         suspicious = [str(x).strip() for x in payload.get("suspicious_points", []) if str(x).strip()]
@@ -101,6 +116,8 @@ def run_comprehension_pass(model: JsonModelClient, files: dict[str, str]) -> lis
             )
         )
 
+    total_elapsed = time.perf_counter() - started_at
+    print(f"[timing] comprehension pass completed in {total_elapsed:.1f}s", flush=True)
     return summaries
 
 
@@ -143,8 +160,14 @@ def run_lens_pass(
 ) -> list[Finding]:
     system_prompt = LENS_SYSTEM_PROMPT_TEMPLATE.format(lens=lens.value)
     findings: list[Finding] = []
+    started_at = time.perf_counter()
+    batches = _batch_summaries(summaries)
+    print(
+        f"[progress] {lens.value} pass: {len(batches)} batch(es) from {len(summaries)} file summaries",
+        flush=True,
+    )
 
-    for batch in _batch_summaries(summaries):
+    for batch_index, batch in enumerate(batches, start=1):
         user_prompt = json.dumps(
             {
                 "lens": lens.value,
@@ -154,13 +177,30 @@ def run_lens_pass(
             ensure_ascii=True,
         )
 
+        batch_started = time.perf_counter()
+        print(
+            f"[progress] {lens.value} batch {batch_index}/{len(batches)}: request sent",
+            flush=True,
+        )
         payload = model.chat_json(system_prompt, user_prompt)
         parsed = _parse_findings(payload, enforced_lens=lens)
+        batch_elapsed = time.perf_counter() - batch_started
+        print(
+            f"[progress] {lens.value} batch {batch_index}/{len(batches)}: "
+            f"{len(parsed)} finding(s) in {batch_elapsed:.1f}s",
+            flush=True,
+        )
         for finding in parsed:
             findings.append(finding)
             if critical_callback and finding.severity == Severity.CRITICAL:
                 critical_callback(finding)
 
+    total_elapsed = time.perf_counter() - started_at
+    print(
+        f"[timing] {lens.value} pass completed in {total_elapsed:.1f}s "
+        f"with {len(findings)} finding(s)",
+        flush=True,
+    )
     return findings
 
 
@@ -193,8 +233,14 @@ def run_operational_realism_pass(
     findings: list[Finding],
 ) -> list[Finding]:
     if not findings:
+        print("[progress] operational realism pass skipped (no findings)", flush=True)
         return findings
 
+    started_at = time.perf_counter()
+    print(
+        f"[progress] operational realism pass: scoring {len(findings)} finding(s)",
+        flush=True,
+    )
     prompt_payload = {
         "findings": [
             {
@@ -226,6 +272,8 @@ def run_operational_realism_pass(
             notes=entry.notes,
         )
 
+    total_elapsed = time.perf_counter() - started_at
+    print(f"[timing] operational realism pass completed in {total_elapsed:.1f}s", flush=True)
     return findings
 
 
@@ -234,10 +282,13 @@ def run_all_lenses(
     files: dict[str, str],
     critical_callback: Callable[[Finding], None] | None = None,
 ) -> PassOutput:
+    started_at = time.perf_counter()
     summaries = run_comprehension_pass(model, files)
     offensive = run_lens_pass(model, summaries, Perspective.OFFENSIVE, critical_callback)
     defensive = run_lens_pass(model, summaries, Perspective.DEFENSIVE, critical_callback)
     privacy = run_lens_pass(model, summaries, Perspective.PRIVACY, critical_callback)
+    total_elapsed = time.perf_counter() - started_at
+    print(f"[timing] all analysis lens passes completed in {total_elapsed:.1f}s", flush=True)
     return PassOutput(
         comprehension=summaries,
         offensive=offensive,

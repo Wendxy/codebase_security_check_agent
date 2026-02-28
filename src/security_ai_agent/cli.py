@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Sequence
@@ -92,6 +93,7 @@ def parse_formats(raw: str) -> set[str]:
 
 
 def run_scan_command(args: argparse.Namespace) -> int:
+    run_started = time.perf_counter()
     target = Path(args.target_path).resolve()
     output_root = Path(args.output_dir).resolve()
     run_id = create_run_id()
@@ -99,6 +101,7 @@ def run_scan_command(args: argparse.Namespace) -> int:
 
     formats = parse_formats(args.format)
 
+    io_started = time.perf_counter()
     file_paths = collect_files(
         str(target),
         include_globs=args.include,
@@ -107,19 +110,30 @@ def run_scan_command(args: argparse.Namespace) -> int:
     )
     loaded = load_codebase(file_paths, target if target.is_dir() else target.parent)
     redacted_files, redaction_stats = redact_codebase(loaded)
+    io_elapsed = time.perf_counter() - io_started
 
     print(f"Analyzing {len(redacted_files)} files with model {args.model}...")
+    print(f"[timing] discovery + load + redaction completed in {io_elapsed:.1f}s")
     if redaction_stats.replacements:
         print(f"Applied {redaction_stats.replacements} secret redactions before model prompts.")
 
+    client_started = time.perf_counter()
     client = OpenAIModelClient(OpenAIConfig(model=args.model))
+    print(f"[timing] model client initialization completed in {time.perf_counter() - client_started:.1f}s")
     alerter = CriticalAlerter()
 
+    analysis_started = time.perf_counter()
     pass_output = run_all_lenses(client, redacted_files, critical_callback=alerter.on_critical)
+    print(f"[timing] AI analysis passes completed in {time.perf_counter() - analysis_started:.1f}s")
     dedup_input = pass_output.offensive + pass_output.defensive + pass_output.privacy
+
+    post_started = time.perf_counter()
     dedup = merge_findings(dedup_input)
     findings = run_operational_realism_pass(client, dedup.findings)
     findings = assign_finding_ids(findings)
+    print(
+        f"[timing] deduplication + realism + id assignment completed in {time.perf_counter() - post_started:.1f}s"
+    )
 
     critical_findings = [finding for finding in findings if finding.severity == Severity.CRITICAL]
 
@@ -141,6 +155,7 @@ def run_scan_command(args: argparse.Namespace) -> int:
         top_findings=args.top_findings,
     )
     write_critical_alert(run_dir, critical_findings)
+    print(f"[timing] report artifacts written to {run_dir}")
 
     summary = {
         "run_id": run_id,
@@ -148,6 +163,7 @@ def run_scan_command(args: argparse.Namespace) -> int:
         "critical": len(critical_findings),
         "deduplicated": dedup.merged_count,
         "run_dir": str(run_dir),
+        "total_seconds": round(time.perf_counter() - run_started, 2),
     }
     print(json.dumps(summary, indent=2))
 

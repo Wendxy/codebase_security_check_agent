@@ -1,0 +1,2 @@
+[console_scripts]
+security-agent = security_ai_agent.cli:main
