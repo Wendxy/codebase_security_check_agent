@@ -1,3 +1,3 @@
 # security-ai-agent
 
-AI-powered codebase security analyzer with offensive, defensive, privacy, and operational realism perspectives.
+AI-powered codebase security analyser with offensive, defensive, privacy, and operational realism perspectives.
