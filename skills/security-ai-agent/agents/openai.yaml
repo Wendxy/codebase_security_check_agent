@@ -1,0 +1,4 @@
+interface:
+  display_name: "Security AI Agent"
+  short_description: "AI security analysis across offensive, defensive, privacy, and realism lenses"
+  default_prompt: "Analyze this codebase for security issues with numbered findings and critical alerts"
